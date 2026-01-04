@@ -40,6 +40,8 @@ public class ReplicationStrategyRecommender {
         List<String> reasons = new ArrayList<>();
 
         int gatePenalty = applyGates(topology, requirements, gates, warnings, reasons);
+
+        axis.put("consistencyFit", scoreConsistencyFit(topology, requirements));
     }
 
     private int applyGates(Topology topology, ReplicationRequirements req, List<String> gates, List<String> warnings, List<String> reasons) {
@@ -88,5 +90,25 @@ public class ReplicationStrategyRecommender {
         }
 
         return penalty;
+    }
+
+    private int scoreConsistencyFit(Topology t, ReplicationRequirements req) {
+        return switch (req.getConsistency()) {
+            case STRONG -> switch(t) {
+                case LEADER_FOLLOWER -> 10;
+                case MULTI_LEADER -> 3;
+                case LEADERLESS -> 6;
+            };
+            case SESSION -> switch(t) {
+                case LEADER_FOLLOWER -> 8;
+                case MULTI_LEADER -> 6;
+                case LEADERLESS -> 7;
+            };
+            case EVENTUAL -> switch(t) {
+                case LEADER_FOLLOWER -> 6;
+                case MULTI_LEADER -> 8;
+                case LEADERLESS -> 9;
+            };
+        };
     }
 }
