@@ -44,6 +44,7 @@ public class ReplicationStrategyRecommender {
         axis.put("consistencyFit", scoreConsistencyFit(topology, requirements));
         axis.put("availabilityFit", scoreAvailabilityFit(topology, requirements));
         axis.put("latencyFit", scoreLatencyFit(topology, requirements));
+        axis.put("conflictRisk", scoreConflictRisk(topology, requirements));
     }
 
     private int applyGates(Topology topology, ReplicationRequirements req, List<String> gates, List<String> warnings, List<String> reasons) {
@@ -149,4 +150,22 @@ public class ReplicationStrategyRecommender {
             case LEADERLESS -> 7;
         };
     }
+
+    private int scoreConflictRisk(Topology t, ReplicationRequirements req) {
+        return switch(t) {
+            case LEADER_FOLLOWER -> 10;
+            case MULTI_LEADER -> switch(req.getConflictTolerance()) {
+                case NONE -> 2;
+                case LOW -> 4;
+                case HIGH -> 6;
+            };
+            case LEADERLESS -> switch(req.getConflictTolerance()) {
+                case NONE -> 4;
+                case LOW -> 6;
+                case HIGH -> 7;
+            };
+        };
+    }
+
+
 }
