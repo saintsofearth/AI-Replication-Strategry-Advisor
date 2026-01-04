@@ -1,0 +1,92 @@
+package org.example.services;
+
+import org.example.constants.*;
+import org.example.dto.CandidateEvaluation;
+import org.example.dto.ReplicationRecommendation;
+import org.example.dto.ReplicationRequirements;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class ReplicationStrategyRecommender {
+    /*
+        We need to think about core logic at 2 levels:
+        1. Hard constraints
+        2. A weighted scoring matrix.
+
+        Hard constraint: Given our input what is an obviously a bad choice.
+
+    */
+
+    private static final int BIG_PENALTY = -60;
+    private static final int MED_PENALTY = -30;
+    private static final int SMALL_PENALTY = -15;
+
+    public ReplicationRecommendation advise(ReplicationRequirements requirements) {
+
+
+        List<CandidateEvaluation> evals = new ArrayList<>();
+        evals.add(evaluate(Topology.LEADER_FOLLOWER, requirements));
+    }
+
+    private CandidateEvaluation evaluate(Topology topology, ReplicationRequirements requirements) {
+        Map<String, Integer> axis = new LinkedHashMap<>();
+        List<String> gates = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        List<String> reasons = new ArrayList<>();
+
+        int gatePenalty = applyGates(topology, requirements, gates, warnings, reasons);
+    }
+
+    private int applyGates(Topology topology, ReplicationRequirements req, List<String> gates, List<String> warnings, List<String> reasons) {
+        int penalty = 0;
+
+        if (req.getRegions() == Regions.MULTI_WRITE) {
+            if (topology == Topology.LEADER_FOLLOWER) {
+                gates.add("MULTI_WRITE penalizes LEADER_FOLLOWER (single write region assumption)");
+                warnings.add("Multi-region writes are difficult with Leader-follower unless you centralize writes to one region");
+                penalty += BIG_PENALTY;
+            }
+        }
+
+        if (req.getRegions() == Regions.MULTI_WRITE && req.getConflictTolerance() == ConflictTolerance.NONE) {
+            if (topology == Topology.MULTI_LEADER) {
+                gates.add("CONFLICT_NONE + MULTI_WRITE penalizes MULTI_LEADER");
+                warnings.add("Multi-leader with multi-region writes can create conflicts; conflict-free data model or centralized writes may be required.");
+                penalty += BIG_PENALTY;
+            }
+            if (topology == Topology.LEADERLESS) {
+                gates.add("CONFLICT_NONE + MULTI_WRITE penalizes LEADERLESS");
+                warnings.add("Leaderless setup need conflict resolution (versioning/repair). If conflicts are unacceptable, consider centralizing writes.");
+                penalty += MED_PENALTY;
+            }
+        }
+
+        if (req.getDataLossTolerance() == DataLossTolerance.ZERO) {
+            warnings.add("Zero data loss tolerance typically requires synchronous/majority acknowledegment; async replication increases risk under failures.");
+            if (topology == Topology.LEADERLESS || topology == Topology.MULTI_LEADER) penalty += SMALL_PENALTY;
+        }
+
+        if (req.getConsistency() == Consistency.STRONG && req.getRegions() != Regions.SINGLE) {
+            warnings.add("Strong consistency across regions increases write latency and/or reduces availability under partitions");
+            if (topology == Topology.MULTI_LEADER) penalty += MED_PENALTY;
+            if (topology == Topology.LEADERLESS) penalty += SMALL_PENALTY;
+        }
+
+        Integer latency = req.getLatencyTargetMsP99();
+        if (latency != null && latency <= 50 && req.getRegions() != Regions.SINGLE && req.getConsistency() == Consistency.STRONG) {
+            warnings.add("P99 <= 50ms with strong consistency across multiple regions is usually unrealistic without relaxing constraints.");
+            penalty += SMALL_PENALTY;
+        }
+
+        if (!gates.isEmpty()) {
+            reasons.add("Gate penalties applied: " + String.join("; ", gates));
+        }
+
+        return penalty;
+    }
+}
