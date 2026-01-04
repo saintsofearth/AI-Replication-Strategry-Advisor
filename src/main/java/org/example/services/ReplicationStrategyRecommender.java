@@ -43,6 +43,7 @@ public class ReplicationStrategyRecommender {
 
         axis.put("consistencyFit", scoreConsistencyFit(topology, requirements));
         axis.put("availabilityFit", scoreAvailabilityFit(topology, requirements));
+        axis.put("latencyFit", scoreLatencyFit(topology, requirements));
     }
 
     private int applyGates(Topology topology, ReplicationRequirements req, List<String> gates, List<String> warnings, List<String> reasons) {
@@ -127,6 +128,25 @@ public class ReplicationStrategyRecommender {
             };
             case MED -> base;
             case LOW -> base - 1;
+        };
+    }
+
+    private int scoreLatencyFit(Topology t, ReplicationRequirements req) {
+        int p99 = req.getLatencyTargetMsP99() == null ? 150 : req.getLatencyTargetMsP99();
+        boolean tight = p99 <= 80;
+
+        if (req.getRegions() == Regions.SINGLE) {
+            return switch(t) {
+                case LEADER_FOLLOWER -> tight ? 9 : 8;
+                case MULTI_LEADER -> 7;
+                case LEADERLESS -> tight ? 7 : 8;
+            };
+        }
+
+        return switch(t) {
+            case LEADER_FOLLOWER -> (req.getConsistency() == Consistency.STRONG) ? (tight ? 4 : 5) : (tight ? 5 : 6);
+            case MULTI_LEADER -> (req.getRegions() == Regions.MULTI_WRITE) ? (8) : (7);
+            case LEADERLESS -> 7;
         };
     }
 }
